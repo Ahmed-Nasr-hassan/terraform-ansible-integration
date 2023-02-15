@@ -1,2 +1,2 @@
-./terraform/*terraform*
-./terraform/my-key.pem
+terraform/*terraform*
+terraform/my-key.pem
