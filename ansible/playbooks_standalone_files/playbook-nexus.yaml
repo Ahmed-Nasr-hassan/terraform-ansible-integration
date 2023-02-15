@@ -1,0 +1,67 @@
+- name: config nexus machine 
+  hosts: private
+  become: true
+  gather_facts: false
+
+  tasks:
+    - name: update packages
+      yum:
+        name: 
+          - java-1.8.0-openjdk.x86_64
+          - wget
+        update_cache: yes
+    
+    - name: create new directory
+      file:
+        path: /app
+        state: directory
+
+    - name: Download nexus tar
+      get_url:
+        url: https://download.sonatype.com/nexus/3/latest-unix.tar.gz
+        dest: /app/nexus.tar.gz
+
+    - name: Unpack nexus.tar.gz
+      unarchive:
+        src: /app/nexus.tar.gz
+        dest: /app
+        remote_src: yes
+
+    - name: mv sonarqube folder
+      shell: bash -c "sudo mv /app/nexus-3* /app/nexus"
+
+    - name: Add nexus user
+      user:
+        name: nexus
+    
+    - name: Change owner to nexus
+      file:
+        dest: "{{ item }}"
+        owner: nexus
+        group: nexus
+        recurse: yes
+      with_items:
+        - /app/nexus
+        - /app/sonatype-work
+
+    - name: Run as nexus user
+      lineinfile:
+        path: "/app/nexus/bin/nexus.rc"
+        regexp: "^#"
+        line: 'run_as_user="nexus"'
+        state: present
+    
+    - name: copy nexus.service to remote host
+      copy:
+        src: ./nexus.service
+        dest: /etc/systemd/system/nexus.service
+
+    - name: Make sure nexus is running
+      service:
+        name: nexus
+        state: started
+        enabled: yes
+
+
+      
+

@@ -1,0 +1,91 @@
+---
+- name: install required debian packages
+  apt:
+    name:
+      - postgresql
+      - postgresql-contrib
+      - python3-pip 
+      - python3-psycopg2
+    update_cache: yes
+  when: ansible_os_family == "Debian"
+
+- name: install required redhat packages
+  yum:
+    name:
+      - postgresql-server
+      - postgresql-contrib
+      - python3-pip 
+      - python3-psycopg2
+    update_cache: yes
+  when: ansible_os_family == "RedHat"
+
+- name: get "lsb_release -cs" in a registry
+  command: lsb_release -cs
+  register: lsb_release
+
+- name: Add line to /etc/apt/sources.list.d/pgdg.list
+  copy:
+    dest: /etc/apt/sources.list.d/pgdg.list
+    content: deb http://apt.postgresql.org/pub/repos/apt/ {{ lsb_release.stdout }}-pgdg main
+
+- name: Add key to apt
+  apt_key:
+    url: https://www.postgresql.org/media/keys/ACCC4CF8.asc
+    state: present
+
+- name: Enable the database server to start automatically on reboot
+  service:
+    name: postgresql
+    state: started
+    enabled: true
+
+- name: Set password for user postgres
+  user:
+    name: postgres
+    password: "{{ postgres_password }}" # should use vault with this password or any other secret manager
+
+- name: Add sonar user
+  user:
+    name: sonar
+  notify: Restart postgresql
+
+- name: Remove lines from /etc/postgresql/{{ postgresql_version }}/main/pg_hba.conf
+  lineinfile:
+    dest: /etc/postgresql/{{ postgresql_version }}/main/pg_hba.conf
+    line: "{{ item }}"
+    state: absent
+  loop:
+    - "local   all             postgres                                peer"
+    - "local   all             all                                     peer"
+
+- name: Add lines to /etc/postgresql/14/main/pg_hba.conf
+  lineinfile:
+    dest: /etc/postgresql/14/main/pg_hba.conf
+    line: "{{ item }}"
+  loop:
+    - "local   all             postgres                                trust"
+    - "local   all             all                                     md5"
+  notify: Restart postgresql
+
+- name: Restart postgresql
+  become: true
+  service:
+    name: postgresql
+    state: restarted
+    enabled: true
+
+- name: Create the database  
+  postgresql_db:
+    login_user: postgres
+    login_password: "{{ postgres_password }}"
+    name: sonarqube 
+    template: 'template0'
+    state: present
+
+- name: Create sonar user, and grant access
+  postgresql_user:
+    db: sonarqube
+    name: sonar
+    password: my_strong_password
+    priv: ALL
+    expires: infinity

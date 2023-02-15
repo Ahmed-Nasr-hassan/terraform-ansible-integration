@@ -1,0 +1,6 @@
+bastion ansible_host=18.210.6.37 ansible_user=ubuntu ansible_port=22 ansible_private_key_file=/home/ahmednasr/ansible/my-key.pem
+
+[private]
+ nexus ansible_host=172.31.99.154 ansible_user=ec2-user ansible_port=22 ansible_private_key_file=/home/ahmednasr/ansible/my-key.pem ansible_ssh_common_args='-o ProxyCommand="ssh bastion -W %h:%p"'
+ sonarqube ansible_host=172.31.99.23 ansible_user=ubuntu ansible_port=22 ansible_private_key_file=/home/ahmednasr/ansible/my-key.pem ansible_ssh_common_args='-o ProxyCommand="ssh bastion -W %h:%p"'
+ 

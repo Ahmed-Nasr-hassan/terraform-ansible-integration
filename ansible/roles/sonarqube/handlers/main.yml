@@ -1,0 +1,6 @@
+---
+- name: Restart sonar
+  service:
+    name: sonar
+    state: started
+    enabled: true

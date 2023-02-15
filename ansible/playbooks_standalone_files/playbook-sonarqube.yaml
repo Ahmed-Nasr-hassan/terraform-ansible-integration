@@ -1,0 +1,177 @@
+- name: config sonarqube machine 
+  hosts: private
+  become: true
+  gather_facts: false
+
+  tasks:
+    - name: install required packages
+      apt:
+        name:
+          - postgresql
+          - postgresql-contrib
+          - python3-pip 
+          - python3-psycopg2
+          - zip
+          - openjdk-11-jdk
+        update_cache: yes
+
+    - name: get "lsb_release -cs" in a registry
+      command: lsb_release -cs
+      register: lsb_release
+
+    - name: Add line to /etc/apt/sources.list.d/pgdg.list
+      copy:
+        dest: /etc/apt/sources.list.d/pgdg.list
+        content: deb http://apt.postgresql.org/pub/repos/apt/ {{ lsb_release.stdout }}-pgdg main
+
+    - name: Add key to apt
+      become: yes
+      apt_key:
+        url: https://www.postgresql.org/media/keys/ACCC4CF8.asc
+        state: present
+
+    - name: Enable the database server to start automatically on reboot
+      service:
+        name: postgresql
+        state: started
+        enabled: true
+
+    - name: Set password for user postgres
+      user:
+        name: postgres
+        password: postgres_password # should use vault with this password or any other secret manager
+
+    - name: Add sonar user
+      user:
+        name: sonar
+    
+    - name: Enable the database server to start automatically on reboot
+      service:
+        name: postgresql
+        state: restarted
+
+
+    - name: Remove lines from /etc/postgresql/14/main/pg_hba.conf
+      lineinfile:
+        dest: /etc/postgresql/14/main/pg_hba.conf
+        line: "{{ item }}"
+        state: absent
+      loop:
+        - "local   all             postgres                                peer"
+        - "local   all             all                                     peer"
+
+
+
+    - name: Add lines to /etc/postgresql/14/main/pg_hba.conf
+      lineinfile:
+        dest: /etc/postgresql/14/main/pg_hba.conf
+        line: "{{ item }}"
+      loop:
+        - "local   all             postgres                                trust"
+        - "local   all             all                                     md5"
+
+    - name: restart postgresql service
+      service:
+        name: postgresql
+        state: restarted
+        enabled: true        
+
+    - name: Create the database  
+      postgresql_db:
+        login_user: postgres
+        login_password: postgres_password
+        name: sonarqube 
+        template: 'template0'
+        state: present
+
+    - name: Create sonar user, and grant access
+      postgresql_user:
+        db: sonarqube
+        name: sonar
+        password: my_strong_password
+        priv: ALL
+        expires: infinity
+
+    - name: Download sonarqube zip
+      get_url:
+        url: "https://binaries.sonarsource.com/Distribution/sonarqube/sonarqube-7.3.zip"
+        dest: ./sonarqube
+
+    - name: Unzip the downloaded file
+      unarchive:
+        src: ./sonarqube
+        dest: .
+        remote_src: yes
+    
+    - name: mv sonarqube folder
+      copy:
+        src: ./sonarqube-7.3/
+        dest: /opt/sonarqube/
+        remote_src: yes
+        directory_mode:
+      tags:
+        - dir_not_exist
+        - dircontent
+
+    - name: Add sonar user
+      user:
+        name: sonar
+        home: /opt/sonarqube    
+
+    - name: Change owner to sonar
+      become: yes
+      file:
+        dest: /opt/sonarqube
+        owner: sonar
+        group: sonar
+        recurse: yes
+
+    - name: Edit the SonarQube configuration file
+      lineinfile:
+        dest: /opt/sonarqube/conf/sonar.properties
+        line: "{{ item }}"
+      loop:
+        - "sonar.jdbc.username=sonar"
+        - "sonar.jdbc.password=my_strong_password"
+        - "sonar.jdbc.url=jdbc:postgresql://localhost:5432/sonarqube"
+    
+    - name: Check if default run user present
+      lineinfile:
+        path: /opt/sonarqube/bin/linux-x86-64/sonar.sh
+        regexp: '^#RUN_AS'
+        state: absent
+      check_mode: true
+      changed_when: false
+      register: check
+
+    - name: Add the line if default not changed
+      lineinfile:
+        path: /opt/sonarqube/bin/linux-x86-64/sonar.sh 
+        regexp: '^#RUN_AS'
+        line: 'RUN_AS_USER=sonar'
+      when: check.found == true
+
+    - name: Copy sonar.service
+      copy:
+        src: ./sonar.service
+        dest: /etc/systemd/system/
+
+    - name: Enable the sonar service 
+      service:
+        name: sonar
+        state: started
+        enabled: true
+
+    - name: Edit the sysctl configuration file
+      lineinfile:
+        dest: /etc/sysctl.conf
+        line: "{{ item }}"
+      loop:
+        - "vm.max_map_count=262144"
+        - "fs.file-max=65536"
+        - "ulimit -n 65536"
+        - "ulimit -u 4096"
+    
+    - name: reboot the system
+      reboot:
+        

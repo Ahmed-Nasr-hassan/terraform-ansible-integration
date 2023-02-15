@@ -1,0 +1,7 @@
+---
+- name: Restart nexus
+  become: true
+  service:
+    name: nexus
+    state: started
+    enabled: yes
